@@ -1,0 +1,12 @@
+.env
+*.egg-info/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Artefato do WSL ao copiar arquivos do Windows
+*:Zone.Identifier

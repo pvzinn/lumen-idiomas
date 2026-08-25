@@ -1,0 +1,49 @@
+services:
+  db:
+    # Imagem oficial do pgvector: Postgres 16 com a extensão já compilada.
+    # Evita ter que construir a extensão em um Dockerfile próprio.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lumen}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lumen}
+      POSTGRES_DB: ${POSTGRES_DB:-lumen}
+    ports:
+      # Exposto no host para inspecionar o banco com psql/DBeaver durante o
+      # desenvolvimento. Em produção esta seção sai.
+      - "${POSTGRES_PORT_HOST:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # A API só sobe depois que o banco aceita conexão, e não apenas depois
+      # que o container existe.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lumen} -d ${POSTGRES_DB:-lumen}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Sobrepõe o host do .env: dentro da rede do compose o banco é `db`,
+      # não `localhost`.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Bind mount para reload sem rebuild. Em produção não existe.
+      - ./app:/srv/app
+      - ./migrations:/srv/migrations
+      - ./knowledge-base:/srv/knowledge-base:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  pgdata:

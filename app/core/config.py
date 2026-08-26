@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     postgres_password: str = "lumen"
     postgres_db: str = "lumen"
 
+    # DSN completa, quando existir. O Railway a injeta a partir do serviço
+    # Postgres do template (`${{Postgres.DATABASE_URL}}`); localmente ela não
+    # é definida, e a URL é montada das partes acima.
+    database_url_env: str | None = Field(default=None, validation_alias="DATABASE_URL")
+
     # --- Recuperação (RAG) ---
     # A dimensão do embedding não está aqui: é `EMBEDDING_DIM`, em
     # `app.core.constants`. Ela faz parte do tipo da coluna no banco, então não
@@ -38,15 +43,31 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def database_url(self) -> PostgresDsn:
-        """DSN assíncrono, usado pela aplicação em tempo de execução."""
-        return PostgresDsn.build(
-            scheme="postgresql+asyncpg",
-            username=self.postgres_user,
-            password=self.postgres_password,
-            host=self.postgres_host,
-            port=self.postgres_port,
-            path=self.postgres_db,
+    def database_url(self) -> str:
+        """DSN assíncrona, usado pela aplicação em tempo de execução.
+
+        Se `DATABASE_URL` existir, ela tem prioridade sobre as partes acima —
+        é o caso do Railway. Ela vem no esquema `postgresql://` (ou
+        `postgres://`), mas o projeto usa asyncpg, que exige o driver no
+        esquema; convertemos para `postgresql+asyncpg://` aqui em vez de pedir
+        que a variável já venha correta, porque quem a fornece é a plataforma,
+        não o projeto.
+        """
+        if self.database_url_env:
+            url = self.database_url_env
+            for esquema_pg in ("postgresql://", "postgres://"):
+                if url.startswith(esquema_pg):
+                    return "postgresql+asyncpg://" + url.removeprefix(esquema_pg)
+            return url
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+asyncpg",
+                username=self.postgres_user,
+                password=self.postgres_password,
+                host=self.postgres_host,
+                port=self.postgres_port,
+                path=self.postgres_db,
+            )
         )
 
 

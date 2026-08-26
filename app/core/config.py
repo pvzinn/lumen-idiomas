@@ -7,6 +7,18 @@ from pydantic import Field, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _com_driver_asyncpg(url: str) -> str:
+    """Converte `postgresql://` / `postgres://` para `postgresql+asyncpg://`.
+
+    As plataformas que fornecem a DSN pronta (Railway) não sabem que o
+    projeto usa asyncpg — é responsabilidade daqui, não de quem a fornece.
+    """
+    for esquema_pg in ("postgresql://", "postgres://"):
+        if url.startswith(esquema_pg):
+            return "postgresql+asyncpg://" + url.removeprefix(esquema_pg)
+    return url
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -32,6 +44,17 @@ class Settings(BaseSettings):
     # é definida, e a URL é montada das partes acima.
     database_url_env: str | None = Field(default=None, validation_alias="DATABASE_URL")
 
+    # DSN usada só pela migration, quando existir. No Railway o
+    # preDeployCommand roda antes da rede privada do projeto
+    # (postgres.railway.internal, é o que DATABASE_URL aponta) estar
+    # resolvível, então a migration falha com erro de DNS se usar a mesma
+    # URL da aplicação. MIGRATION_DATABASE_URL recebe
+    # ${{Postgres.DATABASE_PUBLIC_URL}} para contornar isso; a aplicação em
+    # execução continua na rede privada, via `database_url`.
+    migration_database_url_env: str | None = Field(
+        default=None, validation_alias="MIGRATION_DATABASE_URL"
+    )
+
     # --- Recuperação (RAG) ---
     # A dimensão do embedding não está aqui: é `EMBEDDING_DIM`, em
     # `app.core.constants`. Ela faz parte do tipo da coluna no banco, então não
@@ -54,11 +77,7 @@ class Settings(BaseSettings):
         não o projeto.
         """
         if self.database_url_env:
-            url = self.database_url_env
-            for esquema_pg in ("postgresql://", "postgres://"):
-                if url.startswith(esquema_pg):
-                    return "postgresql+asyncpg://" + url.removeprefix(esquema_pg)
-            return url
+            return _com_driver_asyncpg(self.database_url_env)
         return str(
             PostgresDsn.build(
                 scheme="postgresql+asyncpg",
@@ -69,6 +88,21 @@ class Settings(BaseSettings):
                 path=self.postgres_db,
             )
         )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def migration_database_url(self) -> str:
+        """DSN assíncrona, usada só por `migrations/env.py`.
+
+        Se `MIGRATION_DATABASE_URL` existir, ela tem prioridade — é o caso do
+        Railway, onde ela recebe a URL pública do banco porque o
+        preDeployCommand roda fora da rede privada. Sem ela, cai para
+        `database_url`: é o caso local, onde não existe distinção entre rede
+        pública e privada.
+        """
+        if self.migration_database_url_env:
+            return _com_driver_asyncpg(self.migration_database_url_env)
+        return self.database_url
 
 
 @lru_cache

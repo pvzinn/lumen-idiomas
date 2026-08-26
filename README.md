@@ -39,6 +39,12 @@ mesmo lock de migration.
 4. No serviço da aplicação, em Variables, adicionar `DATABASE_URL` referenciando
    o serviço do banco: `DATABASE_URL=${{Postgres.DATABASE_URL}}`. Isso substitui
    as variáveis `POSTGRES_*` do `.env.example` — não defina as duas formas.
+   Adicionar também `MIGRATION_DATABASE_URL=${{Postgres.DATABASE_PUBLIC_URL}}`:
+   o `preDeployCommand` roda antes da rede privada do projeto
+   (`postgres.railway.internal`, é o que `DATABASE_URL` aponta) estar
+   resolvível, então a migration precisa da URL pública. A aplicação em
+   execução continua na rede privada, via `DATABASE_URL` — só a migration usa
+   a pública.
 5. Conferir que o Railway detectou o `Dockerfile` como builder (config já
    fixada em `railway.json`, mas vale checar na aba Settings → Build).
 6. Fazer o primeiro deploy e acompanhar em Deployments → View Logs: o log de

@@ -1,26 +1,107 @@
 # Lumen Idiomas — atendimento virtual
 
 API de RAG sobre a base de conhecimento da Lumen Idiomas, escola de idiomas
-em Goiânia. Sem rotas de negócio ainda — fase de modelagem e infraestrutura.
+em Goiânia. Hoje faz a recuperação — indexa a base e busca os trechos mais
+próximos de uma pergunta. Ainda não gera resposta nem registra conversa.
 
 - `knowledge-base/` — corpus de origem (RAG).
 - `docs/comportamento.md` — especificação de comportamento do chatbot.
-- `tests/perguntas.md` — spec de comportamento esperado (vira teste automatizado na fase 6).
-- `app/` — API FastAPI, modelos SQLAlchemy, migrations Alembic.
+- `app/` — API FastAPI: modelos SQLAlchemy, cliente de embeddings, busca.
+- `scripts/ingest.py` — indexa `knowledge-base/` no banco, com embeddings.
+- `migrations/` — migrations Alembic.
+- `tests/` — testes automatizados (pytest) e `perguntas.md`, a spec de
+  comportamento esperado do chatbot (vira avaliação automatizada na fase 6).
 
 ## Desenvolvimento local
 
-Requer Docker.
+Requer Docker e Python 3.12 ou mais novo.
 
 ```bash
-cp .env.example .env
+cp .env.example .env              # preencha VOYAGE_API_KEY
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
 docker compose up -d db
 alembic upgrade head
+python -m scripts.ingest          # indexa knowledge-base/ e gera os embeddings
 docker compose up api
 ```
 
 A API sobe em `http://localhost:8000` (`API_PORT` no `.env`). `GET /health`
-confirma que o processo está de pé.
+confirma que o processo está de pé, e `http://localhost:8000/docs` traz a
+documentação interativa das rotas.
+
+`scripts.ingest` é idempotente: rode de novo sempre que `knowledge-base/`
+mudar. Ele reprocessa só os arquivos alterados e só chama a Voyage para os
+trechos novos ou modificados. `--sem-embeddings` faz só o parsing, sem chamar
+a API.
+
+## Busca semântica
+
+`POST /busca` recebe uma pergunta e devolve os `k` trechos da base mais
+próximos dela, com a similaridade de cada um. Não chama modelo de linguagem e
+não grava nada.
+
+```bash
+curl -s -X POST http://localhost:8000/busca \
+  -H 'Content-Type: application/json' \
+  -d '{"pergunta": "Quanto custa a mensalidade?", "k": 3}'
+```
+
+- `pergunta`: obrigatória, de 1 a 1000 caracteres depois de removidos os
+  espaços das pontas.
+- `k`: opcional, de 1 a 20; o padrão é 5.
+
+```json
+{
+  "pergunta": "Quanto custa a mensalidade?",
+  "modelo": "voyage-4-lite",
+  "tempo_ms": { "embedding": 343.3, "banco": 4.1 },
+  "resultados": [
+    {
+      "posicao": 1,
+      "trecho_id": 36,
+      "arquivo": "06-valores-e-pagamento.md",
+      "titulo_documento": "Valores e pagamento",
+      "titulo_secao": "Quanto custa a mensalidade das turmas em grupo",
+      "similaridade": 0.5787,
+      "conteudo": "A mensalidade das turmas em grupo da Lumen Idiomas custa…"
+    }
+  ]
+}
+```
+
+`similaridade` é a similaridade de cosseno (1 menos a distância): quanto
+maior, mais próximo. Não há nota mínima — a busca sempre devolve os `k` mais
+próximos, mesmo para uma pergunta fora do assunto. O limiar entra na fase 4.
+
+Só aparecem trechos de documentos com `indexar: true` e que já têm embedding.
+Com a base vazia ou sem vetores, `resultados` vem vazio. Corpo inválido
+devolve 422; falha no serviço de embeddings devolve 503.
+
+É `POST` para a pergunta ir no corpo, e não na URL, e o texto dela não é
+gravado em log: a aplicação registra só o tamanho, o `k` e os tempos.
+
+## Testes
+
+```bash
+docker compose up -d db
+pytest
+```
+
+Os testes que precisam do pgvector usam o mesmo servidor Postgres do
+desenvolvimento, mas um banco separado, `<POSTGRES_DB>_test` (`lumen_test`).
+A cada execução ele é apagado, recriado e migrado com `alembic upgrade head`;
+o banco de desenvolvimento não é tocado. Cada teste roda numa transação
+desfeita no fim.
+
+Sem Postgres acessível, esses testes são **pulados** — `pytest -rs` mostra o
+motivo — e os demais rodam normalmente.
+
+Nenhum teste chama a Voyage: o embedding é trocado por um vetor falso e
+determinístico, então a suíte não consome a API nem depende de rede.
+
+Lint e tipos: `ruff check .`, `ruff format --check .` e `mypy app scripts tests`.
 
 ## Deploy (Railway)
 
@@ -81,6 +162,7 @@ rodar o comando manual antes ou depois da subida — o que é fácil de esquecer
    não for definida, a migração cai para `DATABASE_URL` (ver
    `app/core/config.py`, `migration_database_url`). Ela só faz diferença quando
    a migração precisa sair pela URL pública em vez da rede privada.
+   Adicionar também `VOYAGE_API_KEY`: sem ela, `POST /busca` responde 503.
 6. Conferir que o Railway detectou o `Dockerfile` como builder (config já
    fixada em `railway.json`, mas vale checar na aba Settings → Build).
 7. Fazer o primeiro deploy e acompanhar em Deployments → View Logs: o log de

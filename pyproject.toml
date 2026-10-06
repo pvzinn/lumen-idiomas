@@ -13,6 +13,8 @@ dependencies = [
     "asyncpg>=0.30",
     "pgvector>=0.3.6",
     "alembic>=1.14",
+    "pyyaml>=6.0",
+    "voyageai>=0.5",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +24,7 @@ dev = [
     "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
+    "types-PyYAML>=6.0",
 ]
 
 [build-system]
@@ -46,3 +49,6 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Raiz do projeto no sys.path: os testes importam `app` e `scripts` direto do
+# código-fonte, sem depender de o pacote estar instalado.
+pythonpath = ["."]

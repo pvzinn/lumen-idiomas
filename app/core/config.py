@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, computed_field
+from pydantic import Field, PostgresDsn, SecretStr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     environment: Literal["local", "staging", "producao"] = "local"
     debug: bool = False
     log_level: str = "INFO"
+    # Echo do motor SQLAlchemy (imprime cada SQL executado). Desligado por
+    # padrão — não segue `debug`, porque um script como `scripts.ingest` quer
+    # `debug=true` (mais log da aplicação) sem que cada INSERT de trecho
+    # afogue o relatório final no terminal. Ligar só quando o que se precisa
+    # depurar é a query em si.
+    sql_echo: bool = False
 
     # --- Banco de dados ---
     postgres_host: str = "db"
@@ -63,6 +69,12 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
     # Caminho da base de conhecimento a ser indexada.
     knowledge_base_path: str = "knowledge-base"
+
+    # Chave da API da Voyage AI, usada por `app.embeddings`. `SecretStr`, não
+    # `str`: assim um log ou repr acidental de `Settings` mostra
+    # `SecretStr('**********')`, nunca a chave. `.get_secret_value()` é
+    # chamado só no ponto de uso, dentro de `app.embeddings`.
+    voyage_api_key: SecretStr | None = Field(default=None, validation_alias="VOYAGE_API_KEY")
 
     @computed_field  # type: ignore[prop-decorator]
     @property

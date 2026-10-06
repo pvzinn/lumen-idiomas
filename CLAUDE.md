@@ -4,14 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-This repository currently contains **no application code** — no package manifest, build tooling, or source directory exists yet. It is the content/spec phase of a future RAG-based support chatbot for **Lumen Idiomas**, a language school in Goiânia, Brazil. There are no build, lint, or test commands to run at this stage. When implementation code is added later, this file should be updated with the real commands.
+A FastAPI + SQLAlchemy (async) + Postgres/pgvector application for a RAG-based support chatbot for **Lumen Idiomas**, a language school in Goiânia, Brazil. Retrieval is implemented (ingestion with Voyage AI embeddings, `POST /busca`); answer generation and conversation logging are not yet.
 
-All content in this repo is written in **Brazilian Portuguese** — keep new content, commit messages discussing it, and any generated text in the same language and register unless told otherwise.
+All content, code comments, identifiers, and commit messages in this repo are written in **Brazilian Portuguese** — keep new content in the same language and register unless told otherwise.
+
+## Commands
+
+```bash
+pip install -e ".[dev]"            # into .venv
+docker compose up -d db            # Postgres 16 + pgvector on localhost:5432
+alembic upgrade head               # apply migrations
+python -m scripts.ingest           # index knowledge-base/ (calls Voyage; --sem-embeddings skips it)
+docker compose up api              # API on http://localhost:8000 (/docs)
+
+pytest                             # full suite
+pytest tests/test_busca.py -k k_limita   # a single test
+ruff check . && ruff format --check .
+mypy app scripts tests             # strict
+```
+
+Tests that need pgvector run against a separate `<POSTGRES_DB>_test` database on the same server, dropped and re-migrated on every run, and are **skipped** (not failed) when Postgres is unreachable — a green run with skips has not exercised the search query. Tests never call Voyage (`tests/conftest.py` blocks the client).
+
+## Architecture notes
+
+- `app/embeddings.py` is the only module that talks to Voyage. `app/services/busca.py` holds the search logic and takes a session, so scripts can call it without HTTP; `app/api/busca.py` is the thin route.
+- Search filters on exactly two columns: `documentos.indexar = true` and `trechos.embedding IS NOT NULL`. `scripts/ingest.py` is responsible for keeping both truthful (it nulls the vector of orphaned sections and flips `indexar` when a file disappears or is marked `indexar: false`). A new way for a chunk to become "should not be retrieved" must be expressed through one of those two columns.
+- `EMBEDDING_DIM` and the embedding model names are constants in `app/core/constants.py`, not env vars, because the dimension is part of the column type. Changing them requires a migration; migrations hard-code the dimension on purpose.
+- Migrations are not run on app startup.
 
 ## Repository structure
 
 - `knowledge-base/` — the source-of-truth content the future chatbot will retrieve answers from (RAG corpus).
 - `tests/perguntas.md` — the behavioral spec for the chatbot, written **before** any implementation. Per its own description, it "vira teste automatizado na fase 6" (becomes an automated test in phase 6) — treat it as a spec/eval set, not yet a runnable test suite.
+- `tests/*.py` — the pytest suite (search endpoint and ingestion).
+- `app/`, `scripts/`, `migrations/` — the application (see Commands and Architecture notes above).
 
 ## Knowledge base structure (`knowledge-base/`)
 

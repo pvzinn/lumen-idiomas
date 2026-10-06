@@ -2,7 +2,12 @@
 
 from collections.abc import AsyncIterator
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.core.config import get_settings
 
@@ -10,7 +15,7 @@ _settings = get_settings()
 
 engine: AsyncEngine = create_async_engine(
     str(_settings.database_url),
-    echo=_settings.debug,
+    echo=_settings.sql_echo,
     pool_pre_ping=True,
 )
 

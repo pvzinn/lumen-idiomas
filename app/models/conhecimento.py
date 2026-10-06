@@ -116,6 +116,14 @@ class Trecho(Base):
     # `Vector(n)` carrega a dimensão no tipo: ver `app.core.constants`.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
 
+    # Nome do modelo que gerou `embedding` (ex.: "voyage-4-lite"). Nulo junto
+    # com `embedding`, preenchido junto com ele. Sem isto, trocar de modelo de
+    # embedding não teria como distinguir "trecho já vetorizado pelo modelo
+    # novo" de "trecho vetorizado pelo modelo antigo" — os dois têm a mesma
+    # dimensão quando os modelos são da mesma família, e o valor por si só não
+    # denuncia qual gerador o produziu.
+    embedding_modelo: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     documento: Mapped["Documento"] = relationship(back_populates="trechos")
 
 
